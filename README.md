@@ -46,6 +46,9 @@ compatibility checks. These are test-host responses, not Azure evidence.
 Candidate CI also runs read-only CodeQL; pull requests require the pinned
 engineering story gate. The workflow on this feature branch is not itself
 proof that trusted-base branch protection has been configured.
+CI also publishes an untrusted source-bound, checksummed framework-dependent
+App Service ZIP. It is a candidate, not an approved release; platform owns
+promotion of the same package and the separately privileged migration step.
 
 The MSTest characterization tests compile the original student controller and
 models from the verified, unchanged reference checkout; no source is copied

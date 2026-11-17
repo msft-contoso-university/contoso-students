@@ -109,10 +109,33 @@ jobs:
       actions: read
     uses: msft-contoso-university/contoso-engineering/.github/workflows/consumer-checks.yml@eb98dd06864557ab29afc0567664ad7f20055358
 
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.404
+      - run: dotnet restore Contoso.Students.sln --locked-mode
+      - name: Create immutable candidate ZIP
+        run: python scripts/package.py --output "$RUNNER_TEMP/students-candidate"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: untrusted-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/students-candidate/*.zip
+            ${{ runner.temp }}/students-candidate/candidate.json
+            ${{ runner.temp }}/students-candidate/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
   required:
     name: Required checks
     if: always()
-    needs: [story, test, candidate-codeql, consumers]
+    needs: [story, test, candidate-codeql, consumers, candidate]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -123,7 +146,7 @@ jobs:
         run: |
           import json, os
           results = json.loads(os.environ["RESULTS"])
-          if set(results) != {"story", "test", "candidate-codeql", "consumers"}:
+          if set(results) != {"story", "test", "candidate-codeql", "consumers", "candidate"}:
               raise SystemExit("Unexpected prerequisite set")
           for name, result in results.items():
               allowed = {"success"}
