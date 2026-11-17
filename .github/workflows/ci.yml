@@ -1,0 +1,156 @@
+name: Student API CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  story:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require a human-approved ready story
+        uses: msft-contoso-university/contoso-engineering/.github/actions/story-gate@fbe87d3b000ddfb84b3eaf8ccaf71071dcfbb215
+        with:
+          github-token: ${{ github.token }}
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.404
+      - name: Restore locked dependencies
+        run: dotnet restore Contoso.Students.sln --locked-mode
+      - name: Test
+        run: dotnet test Contoso.Students.sln --no-restore --configuration Release
+        env:
+          CONTOSO_PRODUCER_SAMPLES: ${{ runner.temp }}/students-response-samples
+      - name: Validate captured responses against OpenAPI
+        run: |
+          python -m venv "$RUNNER_TEMP/students-schema-venv"
+          "$RUNNER_TEMP/students-schema-venv/bin/python" -m pip install -r scripts/requirements-test.txt
+          "$RUNNER_TEMP/students-schema-venv/bin/python" scripts/validate-response-samples.py --samples "$RUNNER_TEMP/students-response-samples"
+      - name: Upload HTTP producer samples
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: producer-response-samples-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/students-response-samples/*.json
+          if-no-files-found: error
+      - name: Test migration and seed against disposable SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="students-sql-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          password="Aa1!$(openssl rand -hex 24)"
+          trap 'docker rm --force "$name" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$name" -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$password" \
+            mcr.microsoft.com/mssql/server@sha256:db9a8fe3098b7e8bbde41106bdc7caee942e97124e5fdb71b872ca208de3092d >/dev/null
+          export STUDENTS_SQL_TEST_CONNECTION_STRING="Server=127.0.0.1,1433;User ID=sa;Password=$password;Encrypt=True;TrustServerCertificate=True;Connect Timeout=2"
+          dotnet test tests/Contoso.Students.Tests/Contoso.Students.Tests.csproj --no-restore --configuration Release --filter FullyQualifiedName~SqlSeedIntegrationTests
+
+  candidate-codeql:
+    name: Candidate CodeQL (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.404
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066
+        with:
+          languages: csharp
+          build-mode: manual
+          queries: security-extended
+      - run: |
+          dotnet restore Contoso.Students.sln --locked-mode
+          dotnet build Contoso.Students.sln --no-restore --configuration Release
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066
+        with:
+          upload: false
+          output: ${{ runner.temp }}/candidate-sarif
+      - name: Require SARIF and no findings
+        shell: python
+        env:
+          SARIF_DIRECTORY: ${{ runner.temp }}/candidate-sarif
+        run: |
+          import json, os, pathlib
+          files = list(pathlib.Path(os.environ["SARIF_DIRECTORY"]).glob("*.sarif"))
+          if not files:
+              raise SystemExit("CodeQL did not produce SARIF")
+          for file in files:
+              report = json.loads(file.read_text(encoding="utf-8"))
+              runs = report.get("runs")
+              if not isinstance(runs, list) or not runs:
+                  raise SystemExit("CodeQL SARIF contains no runs")
+              for run in runs:
+                  if run.get("results"):
+                      raise SystemExit(f"CodeQL findings in {file.name}")
+
+  consumers:
+    needs: test
+    permissions:
+      contents: read
+      actions: read
+    uses: msft-contoso-university/contoso-engineering/.github/workflows/consumer-checks.yml@eb98dd06864557ab29afc0567664ad7f20055358
+
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.404
+      - run: dotnet restore Contoso.Students.sln --locked-mode
+      - name: Create immutable candidate ZIP
+        run: python scripts/package.py --output "$RUNNER_TEMP/students-candidate"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: untrusted-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/students-candidate/*.zip
+            ${{ runner.temp }}/students-candidate/candidate.json
+            ${{ runner.temp }}/students-candidate/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  required:
+    name: Required checks
+    if: always()
+    needs: [story, test, candidate-codeql, consumers, candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require all candidate checks
+        shell: python
+        run: |
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          if set(results) != {"story", "test", "candidate-codeql", "consumers", "candidate"}:
+              raise SystemExit("Unexpected prerequisite set")
+          for name, result in results.items():
+              allowed = {"success"}
+              if name == "story" and os.environ["GITHUB_EVENT_NAME"] == "push":
+                  allowed.add("skipped")
+              if result["result"] not in allowed:
+                  raise SystemExit(f"{name}: {result['result']}")
