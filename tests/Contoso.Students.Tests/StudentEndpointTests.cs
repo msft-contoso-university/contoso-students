@@ -21,6 +21,15 @@ namespace Contoso.Students.Tests;
 public sealed class StudentEndpointTests
 {
     [TestMethod]
+    public void ResponseSampleFileNameCannotEscapeItsDirectory()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "students-samples", Guid.NewGuid().ToString("N"));
+        Assert.AreEqual(Path.Combine(directory, "outside.json"),
+            GetResponseSamplePath(directory, Path.Combine("..", "outside.json")));
+        Assert.ThrowsExactly<ArgumentException>(() => GetResponseSamplePath(directory, ".."));
+    }
+
+    [TestMethod]
     public async Task StudentLookupEnforcesAuthorizationAndReturnsStoredRecord()
     {
         await using var app = new StudentsFactory();
@@ -123,7 +132,16 @@ public sealed class StudentEndpointTests
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Directory.CreateDirectory(directory);
         var envelope = new { schema, body = body.RootElement };
-        await File.WriteAllTextAsync(Path.Combine(directory, fileName), JsonSerializer.Serialize(envelope));
+        await File.WriteAllTextAsync(GetResponseSamplePath(directory, fileName), JsonSerializer.Serialize(envelope));
+    }
+
+    private static string GetResponseSamplePath(string directory, string fileName)
+    {
+        var safeFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName) || safeFileName is "." or "..")
+            throw new ArgumentException("Response samples must use a file name.", nameof(fileName));
+
+        return Path.Combine(directory, safeFileName);
     }
 
     private sealed class StudentsFactory : WebApplicationFactory<Program>
