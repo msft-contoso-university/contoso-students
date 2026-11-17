@@ -34,6 +34,15 @@ Run the API unit and in-memory HTTP tests with `dotnet test Contoso.Students.sln
 These tests replace authentication and SQL with test-only implementations and
 do not establish real Entra or SQL integration.
 
+When `CONTOSO_PRODUCER_SAMPLES` names an output directory, the HTTP tests
+capture synthetic successful lookup, create, populated-page and empty-page
+responses as JSON envelopes with `schema` and `body` fields. CI publishes
+them as `producer-response-samples-<commit>-<run-attempt>` for consumer
+compatibility checks. These are test-host responses, not Azure evidence.
+Candidate CI also runs read-only CodeQL; pull requests require the pinned
+engineering story gate. The workflow on this feature branch is not itself
+proof that trusted-base branch protection has been configured.
+
 The MSTest characterization tests compile the original student controller and
 models from the verified, unchanged reference checkout; no source is copied
 into this repository.
