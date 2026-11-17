@@ -5,6 +5,7 @@ on:
   pull_request:
 
 permissions:
+  actions: read
   contents: read
   issues: read
   pull-requests: read
@@ -96,10 +97,17 @@ jobs:
                   if run.get("results"):
                       raise SystemExit(f"CodeQL findings in {file.name}")
 
+  consumers:
+    needs: test
+    permissions:
+      contents: read
+      actions: read
+    uses: msft-contoso-university/contoso-engineering/.github/workflows/consumer-checks.yml@eb98dd06864557ab29afc0567664ad7f20055358
+
   required:
     name: Required checks
     if: always()
-    needs: [story, test, candidate-codeql]
+    needs: [story, test, candidate-codeql, consumers]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -110,7 +118,7 @@ jobs:
         run: |
           import json, os
           results = json.loads(os.environ["RESULTS"])
-          if set(results) != {"story", "test", "candidate-codeql"}:
+          if set(results) != {"story", "test", "candidate-codeql", "consumers"}:
               raise SystemExit("Unexpected prerequisite set")
           for name, result in results.items():
               allowed = {"success"}
