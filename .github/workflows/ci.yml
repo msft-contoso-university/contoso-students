@@ -6,8 +6,20 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
+  story:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require a human-approved ready story
+        uses: msft-contoso-university/contoso-engineering/.github/actions/story-gate@fbe87d3b000ddfb84b3eaf8ccaf71071dcfbb215
+        with:
+          github-token: ${{ github.token }}
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -87,7 +99,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [test, candidate-codeql]
+    needs: [story, test, candidate-codeql]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -98,8 +110,11 @@ jobs:
         run: |
           import json, os
           results = json.loads(os.environ["RESULTS"])
-          if set(results) != {"test", "candidate-codeql"}:
+          if set(results) != {"story", "test", "candidate-codeql"}:
               raise SystemExit("Unexpected prerequisite set")
           for name, result in results.items():
-              if result["result"] != "success":
+              allowed = {"success"}
+              if name == "story" and os.environ["GITHUB_EVENT_NAME"] == "push":
+                  allowed.add("skipped")
+              if result["result"] not in allowed:
                   raise SystemExit(f"{name}: {result['result']}")
