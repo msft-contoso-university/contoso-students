@@ -39,6 +39,8 @@ public sealed class JwtBoundaryTests
 
         Assert.AreEqual(HttpStatusCode.OK, await Request("api://test", new Claim("scp", "students.read"), new Claim("roles", "Reader")));
         Assert.AreEqual(HttpStatusCode.OK, await Request("api://test", new Claim("idtyp", "app"), new Claim("roles", "Students.Lookup")));
+        Assert.AreEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/students")).StatusCode);
+        Assert.AreEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/students/search?name=Ana")).StatusCode);
         Assert.AreEqual(HttpStatusCode.Forbidden, await Request("api://test", new Claim("roles", "Reader")));
         Assert.AreEqual(HttpStatusCode.Unauthorized, await Request("api://other", new Claim("scp", "students.read"), new Claim("roles", "Reader")));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", app.ForgedToken());
@@ -79,8 +81,8 @@ public sealed class JwtBoundaryTests
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Entra:TenantId"] = "00000000-0000-0000-0000-000000000001",
-                    ["Entra:Audience"] = "api://test",
+                    ["AzureAd:TenantId"] = "00000000-0000-0000-0000-000000000001",
+                    ["AzureAd:Audience"] = "api://test",
                     ["ConnectionStrings:Students"] = "Server=unused;Database=unused"
                 }));
             builder.ConfigureServices(services =>

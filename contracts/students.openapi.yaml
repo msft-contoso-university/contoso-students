@@ -9,6 +9,7 @@ paths:
   /api/v1/students:
     get:
       operationId: listStudents
+      description: Requires the delegated students.read scope and Reader or Registrar role.
       security:
         - bearerAuth: []
       parameters:
@@ -56,6 +57,7 @@ paths:
   /api/v1/students/search:
     get:
       operationId: searchStudents
+      description: Requires the delegated students.read scope and Reader or Registrar role.
       security:
         - bearerAuth: []
       parameters:

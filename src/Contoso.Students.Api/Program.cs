@@ -1,26 +1,44 @@
 using Contoso.Students.Api;
+using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Resources;
 
 var builder = WebApplication.CreateBuilder(args);
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+{
+    var insightsConnection = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+    if (string.IsNullOrWhiteSpace(insightsConnection))
+        throw new InvalidOperationException("Set APPLICATIONINSIGHTS_CONNECTION_STRING for Azure Monitor.");
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService("contoso-students"))
+        .UseAzureMonitor(options =>
+        {
+            options.ConnectionString = insightsConnection;
+            options.Credential = new DefaultAzureCredential();
+        });
+}
 builder.Services.AddDbContext<StudentsDbContext>((services, options) =>
     options.UseSqlServer(services.GetRequiredService<IConfiguration>().GetConnectionString("Students")));
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
-    options.Authority = $"https://login.microsoftonline.com/{builder.Configuration["Entra:TenantId"]}/v2.0";
-    options.Audience = builder.Configuration["Entra:Audience"];
+    options.Authority = $"https://login.microsoftonline.com/{builder.Configuration["AzureAd:TenantId"]}/v2.0";
+    options.Audience = builder.Configuration["AzureAd:Audience"];
     options.MapInboundClaims = false;
 });
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("students-read", policy => policy.RequireAuthenticatedUser()
         .RequireAssertion(context => StudentAuthorization.CanRead(context.User)))
+    .AddPolicy("students-lookup", policy => policy.RequireAuthenticatedUser()
+        .RequireAssertion(context => StudentAuthorization.CanLookup(context.User)))
     .AddPolicy("students-write", policy => policy.RequireAuthenticatedUser()
         .RequireAssertion(context => StudentAuthorization.CanWrite(context.User)));
 
 var app = builder.Build();
-if (!Guid.TryParse(app.Configuration["Entra:TenantId"], out _)
-    || string.IsNullOrWhiteSpace(app.Configuration["Entra:Audience"]))
-    throw new InvalidOperationException("Set Entra:TenantId and Entra:Audience to the configured API registration.");
+if (!Guid.TryParse(app.Configuration["AzureAd:TenantId"], out _)
+    || string.IsNullOrWhiteSpace(app.Configuration["AzureAd:Audience"]))
+    throw new InvalidOperationException("Set AzureAd:TenantId and AzureAd:Audience to the configured API registration.");
 if (string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("Students")))
     throw new InvalidOperationException("Set ConnectionStrings:Students to the service-owned SQL database.");
 
@@ -59,7 +77,7 @@ app.MapGet("/api/v1/students/{id:int}", async (int id, StudentsDbContext db, Can
         .Select(s => new StudentResponse(s.Id, s.FirstName, s.LastName, s.EnrollmentDate))
         .SingleOrDefaultAsync(cancellationToken);
     return student is null ? Results.NotFound() : Results.Ok(student);
-}).RequireAuthorization("students-read");
+}).RequireAuthorization("students-lookup");
 
 app.MapPost("/api/v1/students", async (CreateStudentRequest request, StudentsDbContext db, CancellationToken cancellationToken) =>
 {

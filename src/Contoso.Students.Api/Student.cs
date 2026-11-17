@@ -34,16 +34,15 @@ public sealed class StudentsDbContext(DbContextOptions<StudentsDbContext> option
 
 public static class StudentAuthorization
 {
-    public static bool CanRead(ClaimsPrincipal principal)
-    {
-        var delegated = !principal.HasClaim("idtyp", "app")
+    public static bool CanRead(ClaimsPrincipal principal) =>
+        !principal.HasClaim("idtyp", "app")
             && HasScope(principal, "students.read")
             && (principal.HasClaim("roles", "Reader") || principal.HasClaim("roles", "Registrar"));
-        var service = !principal.HasClaim(claim => claim.Type == "scp")
+
+    public static bool CanLookup(ClaimsPrincipal principal) =>
+        CanRead(principal) || (!principal.HasClaim(claim => claim.Type == "scp")
             && principal.HasClaim("idtyp", "app")
-            && principal.HasClaim("roles", "Students.Lookup");
-        return delegated || service;
-    }
+            && principal.HasClaim("roles", "Students.Lookup"));
 
     public static bool CanWrite(ClaimsPrincipal principal) =>
         !principal.HasClaim("idtyp", "app")

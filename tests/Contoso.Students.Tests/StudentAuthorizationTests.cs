@@ -25,14 +25,16 @@ public sealed class StudentAuthorizationTests
     [TestMethod]
     public void AppOnlyLookupRequiresExplicitAppIdentityAndNarrowRole()
     {
-        Assert.IsTrue(StudentAuthorization.CanRead(Principal(
+        Assert.IsTrue(StudentAuthorization.CanLookup(Principal(
             new Claim("idtyp", "app"), new Claim("roles", "Students.Lookup"))));
-        Assert.IsFalse(StudentAuthorization.CanRead(Principal(new Claim("roles", "Students.Lookup"))));
         Assert.IsFalse(StudentAuthorization.CanRead(Principal(
+            new Claim("idtyp", "app"), new Claim("roles", "Students.Lookup"))));
+        Assert.IsFalse(StudentAuthorization.CanLookup(Principal(new Claim("roles", "Students.Lookup"))));
+        Assert.IsFalse(StudentAuthorization.CanLookup(Principal(
             new Claim("idtyp", "app"), new Claim("roles", "Students.Lookup"), new Claim("scp", "other"))));
-        Assert.IsFalse(StudentAuthorization.CanRead(Principal(
+        Assert.IsFalse(StudentAuthorization.CanLookup(Principal(
             new Claim("idtyp", "app"), new Claim("roles", "Registrar"))));
-        Assert.IsFalse(StudentAuthorization.CanRead(Principal(
+        Assert.IsFalse(StudentAuthorization.CanLookup(Principal(
             new Claim("idtyp", "app"), new Claim("scp", "students.read"), new Claim("roles", "Reader"))));
     }
 

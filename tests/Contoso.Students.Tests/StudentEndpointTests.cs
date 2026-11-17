@@ -85,8 +85,8 @@ public sealed class StudentEndpointTests
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Entra:TenantId"] = "00000000-0000-0000-0000-000000000001",
-                    ["Entra:Audience"] = "api://test",
+                    ["AzureAd:TenantId"] = "00000000-0000-0000-0000-000000000001",
+                    ["AzureAd:Audience"] = "api://test",
                     ["ConnectionStrings:Students"] = "Server=unused;Database=unused"
                 }));
             builder.ConfigureServices(services =>
