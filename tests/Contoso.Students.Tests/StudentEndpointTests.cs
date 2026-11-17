@@ -44,6 +44,39 @@ public sealed class StudentEndpointTests
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/students/2")).StatusCode);
     }
 
+    [TestMethod]
+    public async Task RegistrarCanCreateAndUpdateButReaderCannotWrite()
+    {
+        await using var app = new StudentsFactory();
+        using var client = app.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Identity", "reader");
+        var input = new CreateStudentRequest("Ana", "Example", new DateTime(2020, 1, 1));
+        Assert.AreEqual(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/students", input)).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Test-Identity");
+        client.DefaultRequestHeaders.Add("X-Test-Identity", "registrar");
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/students", input with { FirstName = "" })).StatusCode);
+        var created = await client.PostAsJsonAsync("/api/v1/students", input);
+        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+        var student = await created.Content.ReadFromJsonAsync<StudentResponse>();
+        Assert.IsNotNull(student);
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(
+            $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id + 1, "Ana", "Example", input.EnrollmentDate))).StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.PutAsJsonAsync(
+            "/api/v1/students/99", new UpdateStudentRequest(99, "Ana", "Example", input.EnrollmentDate))).StatusCode);
+        Assert.AreEqual(HttpStatusCode.NoContent, (await client.PutAsJsonAsync(
+            $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id, "Anita", "Example", input.EnrollmentDate))).StatusCode);
+        var page = await client.GetFromJsonAsync<StudentPage>("/api/v1/students?page=0");
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.CurrentPage);
+        Assert.AreEqual("Anita", page.Students[0].FirstName);
+        var matches = await client.GetFromJsonAsync<List<StudentResponse>>("/api/v1/students/search?name=An");
+        Assert.IsNotNull(matches);
+        Assert.HasCount(1, matches);
+        var farPage = await client.GetFromJsonAsync<StudentPage>("/api/v1/students?page=2147483647");
+        Assert.IsNotNull(farPage);
+        Assert.IsEmpty(farPage.Students);
+    }
+
     private sealed class StudentsFactory : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -82,8 +115,9 @@ public sealed class StudentEndpointTests
             var identity = Request.Headers["X-Test-Identity"].ToString();
             if (string.IsNullOrEmpty(identity))
                 return Task.FromResult(AuthenticateResult.NoResult());
-            var claims = new List<Claim> { new("scp", "students.read") };
+            var claims = new List<Claim> { new("scp", identity == "registrar" ? "students.read students.write" : "students.read") };
             if (identity == "reader") claims.Add(new Claim("roles", "Reader"));
+            if (identity == "registrar") claims.Add(new Claim("roles", "Registrar"));
             var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
         }

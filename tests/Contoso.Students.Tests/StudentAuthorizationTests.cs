@@ -32,5 +32,18 @@ public sealed class StudentAuthorizationTests
             new Claim("idtyp", "app"), new Claim("roles", "Students.Lookup"), new Claim("scp", "other"))));
         Assert.IsFalse(StudentAuthorization.CanRead(Principal(
             new Claim("idtyp", "app"), new Claim("roles", "Registrar"))));
+        Assert.IsFalse(StudentAuthorization.CanRead(Principal(
+            new Claim("idtyp", "app"), new Claim("scp", "students.read"), new Claim("roles", "Reader"))));
+    }
+
+    [TestMethod]
+    public void WritesRequireDelegatedRegistrarAndWriteScope()
+    {
+        Assert.IsTrue(StudentAuthorization.CanWrite(Principal(
+            new Claim("scp", "students.write"), new Claim("roles", "Registrar"))));
+        Assert.IsFalse(StudentAuthorization.CanWrite(Principal(
+            new Claim("scp", "students.write"), new Claim("roles", "Reader"))));
+        Assert.IsFalse(StudentAuthorization.CanWrite(Principal(
+            new Claim("idtyp", "app"), new Claim("scp", "students.write"), new Claim("roles", "Registrar"))));
     }
 }

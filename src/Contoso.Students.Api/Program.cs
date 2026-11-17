@@ -13,7 +13,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 });
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("students-read", policy => policy.RequireAuthenticatedUser()
-        .RequireAssertion(context => StudentAuthorization.CanRead(context.User)));
+        .RequireAssertion(context => StudentAuthorization.CanRead(context.User)))
+    .AddPolicy("students-write", policy => policy.RequireAuthenticatedUser()
+        .RequireAssertion(context => StudentAuthorization.CanWrite(context.User)));
 
 var app = builder.Build();
 if (!Guid.TryParse(app.Configuration["Entra:TenantId"], out _)
@@ -26,6 +28,30 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
+app.MapGet("/api/v1/students", async (int? page, StudentsDbContext db, CancellationToken cancellationToken) =>
+{
+    const int pageSize = 50;
+    var currentPage = page is > 0 ? page.Value : 1;
+    var count = await db.Students.CountAsync(cancellationToken);
+    var offset = ((long)currentPage - 1) * pageSize;
+    var students = offset > int.MaxValue
+        ? []
+        : await db.Students.AsNoTracking().OrderBy(s => s.Id).Skip((int)offset).Take(pageSize)
+            .Select(s => new StudentResponse(s.Id, s.FirstName, s.LastName, s.EnrollmentDate))
+            .ToListAsync(cancellationToken);
+    return Results.Ok(new StudentPage(students, count, (int)Math.Ceiling(count / (double)pageSize), currentPage));
+}).RequireAuthorization("students-read");
+
+app.MapGet("/api/v1/students/search", async (string name, StudentsDbContext db, CancellationToken cancellationToken) =>
+{
+    var students = await db.Students.AsNoTracking()
+        .Where(s => EF.Functions.Like(s.FirstName, name + "%") || EF.Functions.Like(s.LastName, name + "%"))
+        .OrderBy(s => s.Id)
+        .Select(s => new StudentResponse(s.Id, s.FirstName, s.LastName, s.EnrollmentDate))
+        .ToListAsync(cancellationToken);
+    return Results.Ok(students);
+}).RequireAuthorization("students-read");
+
 app.MapGet("/api/v1/students/{id:int}", async (int id, StudentsDbContext db, CancellationToken cancellationToken) =>
 {
     var student = await db.Students.AsNoTracking()
@@ -34,6 +60,39 @@ app.MapGet("/api/v1/students/{id:int}", async (int id, StudentsDbContext db, Can
         .SingleOrDefaultAsync(cancellationToken);
     return student is null ? Results.NotFound() : Results.Ok(student);
 }).RequireAuthorization("students-read");
+
+app.MapPost("/api/v1/students", async (CreateStudentRequest request, StudentsDbContext db, CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
+        return Results.BadRequest("FirstName and LastName are required.");
+    var student = new Student { FirstName = request.FirstName, LastName = request.LastName, EnrollmentDate = request.EnrollmentDate };
+    db.Students.Add(student);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/v1/students/{student.Id}",
+        new StudentResponse(student.Id, student.FirstName, student.LastName, student.EnrollmentDate));
+}).RequireAuthorization("students-write");
+
+app.MapPut("/api/v1/students/{id:int}", async (int id, UpdateStudentRequest request, StudentsDbContext db, CancellationToken cancellationToken) =>
+{
+    if (id != request.Id || string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
+        return Results.BadRequest("Matching ID, FirstName and LastName are required.");
+    var student = await db.Students.FindAsync([id], cancellationToken);
+    if (student is null) return Results.NotFound();
+    student.FirstName = request.FirstName;
+    student.LastName = request.LastName;
+    student.EnrollmentDate = request.EnrollmentDate;
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        if (!await db.Students.AsNoTracking().AnyAsync(s => s.Id == id, cancellationToken))
+            return Results.NotFound();
+        throw;
+    }
+    return Results.NoContent();
+}).RequireAuthorization("students-write");
 
 app.Run();
 

@@ -1,9 +1,10 @@
 # Contoso students
 
 This is an incomplete service slice, not a deployable replacement. It provides
-one authenticated student-record lookup and a versioned OpenAPI contract.
-Student list/search and writes, cross-service composition, deterministic seed
-and SQL-backed validation are not yet implemented.
+authenticated student record lookup, list/search, create and update with a
+versioned OpenAPI contract. Delete/reference integrity, cross-service
+composition, deterministic seed and SQL-backed validation are not yet
+implemented.
 
 The API requires `Entra:TenantId`, `Entra:Audience`, and
 `ConnectionStrings:Students`. Configure SQL managed identity externally and

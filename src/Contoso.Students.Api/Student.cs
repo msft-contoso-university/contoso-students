@@ -12,6 +12,9 @@ public sealed class Student
 }
 
 public sealed record StudentResponse(int Id, string FirstName, string LastName, DateTime EnrollmentDate);
+public sealed record StudentPage(IReadOnlyList<StudentResponse> Students, int Count, int Pages, int CurrentPage);
+public sealed record CreateStudentRequest(string? FirstName, string? LastName, DateTime EnrollmentDate);
+public sealed record UpdateStudentRequest(int? Id, string? FirstName, string? LastName, DateTime EnrollmentDate);
 
 public sealed class StudentsDbContext(DbContextOptions<StudentsDbContext> options) : DbContext(options)
 {
@@ -33,13 +36,22 @@ public static class StudentAuthorization
 {
     public static bool CanRead(ClaimsPrincipal principal)
     {
-        var scopes = principal.FindAll("scp")
-            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        var delegated = scopes.Contains("students.read", StringComparer.Ordinal)
+        var delegated = !principal.HasClaim("idtyp", "app")
+            && HasScope(principal, "students.read")
             && (principal.HasClaim("roles", "Reader") || principal.HasClaim("roles", "Registrar"));
         var service = !principal.HasClaim(claim => claim.Type == "scp")
             && principal.HasClaim("idtyp", "app")
             && principal.HasClaim("roles", "Students.Lookup");
         return delegated || service;
     }
+
+    public static bool CanWrite(ClaimsPrincipal principal) =>
+        !principal.HasClaim("idtyp", "app")
+        && HasScope(principal, "students.write")
+        && principal.HasClaim("roles", "Registrar");
+
+    private static bool HasScope(ClaimsPrincipal principal, string scope) =>
+        principal.FindAll("scp")
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Contains(scope, StringComparer.Ordinal);
 }
