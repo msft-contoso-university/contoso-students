@@ -11,10 +11,13 @@ public sealed class Student
     public DateTime EnrollmentDate { get; set; }
 }
 
-public sealed record StudentResponse(int Id, string FirstName, string LastName, DateTime EnrollmentDate);
+public sealed record StudentResponse(int Id, string FirstName, string LastName, DateTime EnrollmentDate)
+{
+    public DateTime EnrollmentDate { get; init; } = DateTime.SpecifyKind(EnrollmentDate, DateTimeKind.Utc);
+}
 public sealed record StudentPage(IReadOnlyList<StudentResponse> Students, int Count, int Pages, int CurrentPage);
-public sealed record CreateStudentRequest(string? FirstName, string? LastName, DateTime EnrollmentDate);
-public sealed record UpdateStudentRequest(int? Id, string? FirstName, string? LastName, DateTime EnrollmentDate);
+public sealed record CreateStudentRequest(string? FirstName, string? LastName, DateTimeOffset? EnrollmentDate);
+public sealed record UpdateStudentRequest(int? Id, string? FirstName, string? LastName, DateTimeOffset? EnrollmentDate);
 
 public sealed class StudentsDbContext(DbContextOptions<StudentsDbContext> options) : DbContext(options)
 {
@@ -24,7 +27,8 @@ public sealed class StudentsDbContext(DbContextOptions<StudentsDbContext> option
     {
         modelBuilder.Entity<Student>(student =>
         {
-            student.ToTable("Students");
+            student.ToTable("Students", table => table.HasCheckConstraint(
+                "CK_Students_EnrollmentDate_NotDefault", "[EnrollmentDate] > '0001-01-01T00:00:00'"));
             student.HasKey(s => s.Id);
             student.Property(s => s.FirstName).IsRequired();
             student.Property(s => s.LastName).IsRequired();

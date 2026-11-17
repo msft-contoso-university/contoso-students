@@ -37,6 +37,11 @@ jobs:
         run: dotnet test Contoso.Students.sln --no-restore --configuration Release
         env:
           CONTOSO_PRODUCER_SAMPLES: ${{ runner.temp }}/students-response-samples
+      - name: Validate captured responses against OpenAPI
+        run: |
+          python -m venv "$RUNNER_TEMP/students-schema-venv"
+          "$RUNNER_TEMP/students-schema-venv/bin/python" -m pip install -r scripts/requirements-test.txt
+          "$RUNNER_TEMP/students-schema-venv/bin/python" scripts/validate-response-samples.py --samples "$RUNNER_TEMP/students-response-samples"
       - name: Upload HTTP producer samples
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

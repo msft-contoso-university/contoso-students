@@ -27,7 +27,7 @@ public sealed class StudentEndpointTests
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<StudentsDbContext>();
-            db.Students.Add(new Student { Id = 1, FirstName = "Ana", LastName = "Example" });
+            db.Students.Add(new Student { Id = 1, FirstName = "Ana", LastName = "Example", EnrollmentDate = new DateTime(2020, 9, 1) });
             await db.SaveChangesAsync();
         }
         using var client = app.CreateClient();
@@ -42,6 +42,8 @@ public sealed class StudentEndpointTests
         var student = await response.Content.ReadFromJsonAsync<StudentResponse>();
         Assert.IsNotNull(student);
         Assert.AreEqual("Ana", student.FirstName);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("2020-09-01T00:00:00Z", json.RootElement.GetProperty("enrollmentDate").GetString());
         await CaptureResponseAsync(response, "Student", "student-lookup.json");
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/students/2")).StatusCode);
     }
@@ -57,11 +59,17 @@ public sealed class StudentEndpointTests
         client.DefaultRequestHeaders.Remove("X-Test-Identity");
         client.DefaultRequestHeaders.Add("X-Test-Identity", "registrar");
         Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/students", input with { FirstName = "" })).StatusCode);
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/students", new { firstName = "Ana", lastName = "Example" })).StatusCode);
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/students", input with { EnrollmentDate = DateTimeOffset.MinValue })).StatusCode);
         var created = await client.PostAsJsonAsync("/api/v1/students", input);
         Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
         var student = await created.Content.ReadFromJsonAsync<StudentResponse>();
         Assert.IsNotNull(student);
         await CaptureResponseAsync(created, "Student", "student-created.json");
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(
+            $"/api/v1/students/{student.Id}", new { id = student.Id, firstName = "Ana", lastName = "Example" })).StatusCode);
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(
+            $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id, "Ana", "Example", DateTimeOffset.MinValue))).StatusCode);
         Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(
             $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id + 1, "Ana", "Example", input.EnrollmentDate))).StatusCode);
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.PutAsJsonAsync(
@@ -84,6 +92,26 @@ public sealed class StudentEndpointTests
         Assert.IsNotNull(farPage);
         Assert.IsEmpty(farPage.Students);
         await CaptureResponseAsync(farPageResponse, "StudentPage", "students-empty-page.json");
+    }
+
+    [TestMethod]
+    public async Task EnrollmentDatePreservesStoredClockValueAndResponsesUseUtc()
+    {
+        await using var app = new StudentsFactory();
+        using var client = app.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Identity", "registrar");
+        var date = new DateTimeOffset(2020, 9, 1, 23, 45, 0, TimeSpan.FromHours(-7));
+        var created = await client.PostAsJsonAsync("/api/v1/students", new CreateStudentRequest("Ana", "Example", date));
+        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+        using var response = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        Assert.AreEqual("2020-09-01T23:45:00Z", response.RootElement.GetProperty("enrollmentDate").GetString());
+        var id = response.RootElement.GetProperty("id").GetInt32();
+        foreach (var path in new[] { $"/api/v1/students/{id}", "/api/v1/students/search?name=Ana" })
+        {
+            using var json = JsonDocument.Parse(await client.GetStringAsync(path));
+            var student = json.RootElement.ValueKind == JsonValueKind.Array ? json.RootElement[0] : json.RootElement;
+            Assert.AreEqual("2020-09-01T23:45:00Z", student.GetProperty("enrollmentDate").GetString());
+        }
     }
 
     private static async Task CaptureResponseAsync(HttpResponseMessage response, string schema, string fileName)

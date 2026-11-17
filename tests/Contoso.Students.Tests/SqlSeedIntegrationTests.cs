@@ -2,6 +2,8 @@ using Contoso.Students.Api;
 using System.Diagnostics;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Contoso.Students.Tests;
 
@@ -37,10 +39,19 @@ public sealed class SqlSeedIntegrationTests
             var database = new SqlConnectionStringBuilder(master.ConnectionString) { InitialCatalog = databaseName };
             var options = new DbContextOptionsBuilder<StudentsDbContext>().UseSqlServer(database.ConnectionString).Options;
             await using var db = new StudentsDbContext(options);
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261117165342_InitialStudents");
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO dbo.Students (FirstName, LastName, EnrollmentDate) VALUES ('Invalid', 'Date', '0001-01-01T00:00:00')");
+            await Assert.ThrowsExactlyAsync<SqlException>(() => migrator.MigrateAsync());
+            Assert.AreEqual(1, await db.Students.CountAsync());
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM dbo.Students WHERE FirstName = 'Invalid'");
             await RunMaintenance(database.ConnectionString, "--migrate");
+            await Assert.ThrowsExactlyAsync<SqlException>(() => db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO dbo.Students (FirstName, LastName, EnrollmentDate) VALUES ('Invalid', 'Date', '0001-01-01T00:00:00')"));
             var seed = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "seed-students.sql"));
 
-            db.Students.Add(new Student { FirstName = "Existing", LastName = "Record" });
+            db.Students.Add(new Student { FirstName = "Existing", LastName = "Record", EnrollmentDate = new DateTime(2020, 9, 1) });
             await db.SaveChangesAsync();
             await Assert.ThrowsExactlyAsync<SqlException>(() => db.Database.ExecuteSqlRawAsync(seed));
             Assert.AreEqual(1, await db.Students.CountAsync());

@@ -43,7 +43,10 @@ namespace Contoso.Students.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Students", (string)null);
+                    b.ToTable("Students", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Students_EnrollmentDate_NotDefault", "[EnrollmentDate] > '0001-01-01T00:00:00'");
+                        });
                 });
 #pragma warning restore 612, 618
         }

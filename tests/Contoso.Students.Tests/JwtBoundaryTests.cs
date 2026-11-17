@@ -27,7 +27,7 @@ public sealed class JwtBoundaryTests
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<StudentsDbContext>();
-            db.Students.Add(new Student { Id = 1, FirstName = "Ana", LastName = "Example" });
+            db.Students.Add(new Student { Id = 1, FirstName = "Ana", LastName = "Example", EnrollmentDate = new DateTime(2020, 9, 1) });
             await db.SaveChangesAsync();
         }
         using var client = app.CreateClient();

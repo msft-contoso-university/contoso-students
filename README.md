@@ -11,6 +11,10 @@ use a distinct migration identity; the runtime does not create or seed its
 database. The API registration must emit the `idtyp` optional access-token
 claim for app-only lookup tokens, and only intended managed identities may
 receive the `Students.Lookup` app role, which permits only GET by ID.
+Writes require a non-default enrollment date; its supplied clock value is
+stored unchanged and emitted as a UTC-designated date-time. The migration
+rejects existing default dates rather than silently changing them; inspect and
+correct such data explicitly before migration.
 Delegated users require both the
 `students.read` scope and a `Reader` or `Registrar` role.
 Outside Development and Testing, `APPLICATIONINSIGHTS_CONNECTION_STRING`

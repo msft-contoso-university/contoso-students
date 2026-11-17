@@ -101,9 +101,10 @@ app.MapGet("/api/v1/students/{id:int}", async (int id, StudentsDbContext db, Can
 
 app.MapPost("/api/v1/students", async (CreateStudentRequest request, StudentsDbContext db, CancellationToken cancellationToken) =>
 {
-    if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-        return Results.BadRequest("FirstName and LastName are required.");
-    var student = new Student { FirstName = request.FirstName, LastName = request.LastName, EnrollmentDate = request.EnrollmentDate };
+    if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName)
+        || request.EnrollmentDate is null || request.EnrollmentDate.Value.DateTime == default)
+        return Results.BadRequest("FirstName, LastName and a non-default EnrollmentDate are required.");
+    var student = new Student { FirstName = request.FirstName, LastName = request.LastName, EnrollmentDate = request.EnrollmentDate.Value.DateTime };
     db.Students.Add(student);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/v1/students/{student.Id}",
@@ -112,13 +113,14 @@ app.MapPost("/api/v1/students", async (CreateStudentRequest request, StudentsDbC
 
 app.MapPut("/api/v1/students/{id:int}", async (int id, UpdateStudentRequest request, StudentsDbContext db, CancellationToken cancellationToken) =>
 {
-    if (id != request.Id || string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-        return Results.BadRequest("Matching ID, FirstName and LastName are required.");
+    if (id != request.Id || string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName)
+        || request.EnrollmentDate is null || request.EnrollmentDate.Value.DateTime == default)
+        return Results.BadRequest("Matching ID, FirstName, LastName and a non-default EnrollmentDate are required.");
     var student = await db.Students.FindAsync([id], cancellationToken);
     if (student is null) return Results.NotFound();
     student.FirstName = request.FirstName;
     student.LastName = request.LastName;
-    student.EnrollmentDate = request.EnrollmentDate;
+    student.EnrollmentDate = request.EnrollmentDate.Value.DateTime;
     try
     {
         await db.SaveChangesAsync(cancellationToken);
