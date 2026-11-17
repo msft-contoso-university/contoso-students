@@ -1,8 +1,30 @@
 # Contoso students
 
-The service has not yet been implemented. These MSTest characterization
-tests compile the original student controller and models from the verified,
-unchanged reference checkout; no source is copied into this repository.
+This is an incomplete service slice, not a deployable replacement. It provides
+one authenticated student-record lookup and a versioned OpenAPI contract.
+Student list/search and writes, cross-service composition, deterministic seed
+and SQL-backed validation are not yet implemented.
+
+The API requires `Entra:TenantId`, `Entra:Audience`, and
+`ConnectionStrings:Students`. Configure SQL managed identity externally and
+use a distinct migration identity; the runtime does not create or seed its
+database. The API registration must emit the `idtyp` optional access-token
+claim for app-only lookup tokens, and only intended managed identities may
+receive the `Students.Lookup` app role. Delegated users require both the
+`students.read` scope and a `Reader` or `Registrar` role.
+
+The checked-in EF migration is an explicit schema artifact; applying it is a
+separate privileged operation, not startup behavior. It has not yet been
+validated against SQL Server. No Entra app, database, consent or role
+assignment is created by this repository.
+
+Run the API unit and in-memory HTTP tests with `dotnet test Contoso.Students.sln`.
+These tests replace authentication and SQL with test-only implementations and
+do not establish real Entra or SQL integration.
+
+The MSTest characterization tests compile the original student controller and
+models from the verified, unchanged reference checkout; no source is copied
+into this repository.
 
 Run with .NET 10 SDK and PowerShell 7:
 

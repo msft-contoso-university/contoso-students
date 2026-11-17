@@ -1,0 +1,91 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
+using Contoso.Students.Api;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Contoso.Students.Tests;
+
+[TestClass]
+public sealed class StudentEndpointTests
+{
+    [TestMethod]
+    public async Task StudentLookupEnforcesAuthorizationAndReturnsStoredRecord()
+    {
+        await using var app = new StudentsFactory();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudentsDbContext>();
+            db.Students.Add(new Student { Id = 1, FirstName = "Ana", LastName = "Example" });
+            await db.SaveChangesAsync();
+        }
+        using var client = app.CreateClient();
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/students/1")).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Test-Identity", "no-role");
+        Assert.AreEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/students/1")).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Test-Identity");
+        client.DefaultRequestHeaders.Add("X-Test-Identity", "reader");
+        var response = await client.GetAsync("/api/v1/students/1");
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var student = await response.Content.ReadFromJsonAsync<StudentResponse>();
+        Assert.IsNotNull(student);
+        Assert.AreEqual("Ana", student.FirstName);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/students/2")).StatusCode);
+    }
+
+    private sealed class StudentsFactory : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            var databaseName = Guid.NewGuid().ToString();
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Entra:TenantId"] = "00000000-0000-0000-0000-000000000001",
+                    ["Entra:Audience"] = "api://test",
+                    ["ConnectionStrings:Students"] = "Server=unused;Database=unused"
+                }));
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<StudentsDbContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<StudentsDbContext>>();
+                services.RemoveAll<StudentsDbContext>();
+                services.AddDbContext<StudentsDbContext>(options => options.UseInMemoryDatabase(databaseName));
+                services.AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = "test";
+                    options.DefaultChallengeScheme = "test";
+                    options.DefaultForbidScheme = "test";
+                }).AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("test", _ => { });
+            });
+        }
+    }
+
+    private sealed class TestAuthenticationHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var identity = Request.Headers["X-Test-Identity"].ToString();
+            if (string.IsNullOrEmpty(identity))
+                return Task.FromResult(AuthenticateResult.NoResult());
+            var claims = new List<Claim> { new("scp", "students.read") };
+            if (identity == "reader") claims.Add(new Claim("roles", "Reader"));
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
+        }
+    }
+}
