@@ -22,3 +22,15 @@ jobs:
         run: dotnet restore Contoso.Students.sln --locked-mode
       - name: Test
         run: dotnet test Contoso.Students.sln --no-restore --configuration Release
+      - name: Test migration and seed against disposable SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="students-sql-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          password="Aa1!$(openssl rand -hex 24)"
+          trap 'docker rm --force "$name" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$name" -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$password" \
+            mcr.microsoft.com/mssql/server@sha256:db9a8fe3098b7e8bbde41106bdc7caee942e97124e5fdb71b872ca208de3092d >/dev/null
+          export STUDENTS_SQL_TEST_CONNECTION_STRING="Server=127.0.0.1,1433;User ID=sa;Password=$password;Encrypt=True;TrustServerCertificate=True;Connect Timeout=2"
+          dotnet test tests/Contoso.Students.Tests/Contoso.Students.Tests.csproj --no-restore --configuration Release --filter FullyQualifiedName~SqlSeedIntegrationTests

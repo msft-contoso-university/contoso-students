@@ -17,6 +17,7 @@
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
     <ProjectReference Include="..\..\src\Contoso.Students.Api\Contoso.Students.Api.csproj" />
+    <None Include="..\..\scripts\seed-students.sql" Link="seed-students.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -3,8 +3,7 @@
 This is an incomplete service slice, not a deployable replacement. It provides
 authenticated student record lookup, list/search, create and update with a
 versioned OpenAPI contract. Delete/reference integrity, cross-service
-composition, deterministic seed and SQL-backed validation are not yet
-implemented.
+composition and live Azure SQL validation are not yet implemented.
 
 The API requires `AzureAd:TenantId`, `AzureAd:Audience`, and
 `ConnectionStrings:Students`. Configure SQL managed identity externally and
@@ -20,8 +19,13 @@ is required. Azure Monitor uses `DefaultAzureCredential` and the
 telemetry ingestion access. No cloud exporter is enabled in local test runs.
 
 The checked-in EF migration is an explicit schema artifact; applying it is a
-separate privileged operation, not startup behavior. It has not yet been
-validated against SQL Server. No Entra app, database, consent or role
+separate privileged operation, not startup behavior. After migrating, a
+separate privileged bootstrap runs `scripts/seed-students.sql` against the
+Students database. It inserts three fixed synthetic records only on an empty
+database, records a transactional marker, and is a no-op on later runs; it
+refuses to seed pre-existing unmarked records. Its DDL is never granted to the
+runtime identity. It has not yet been validated against Azure SQL.
+No Entra app, database, consent or role
 assignment is created by this repository.
 
 Run the API unit and in-memory HTTP tests with `dotnet test Contoso.Students.sln`.
