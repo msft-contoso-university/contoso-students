@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Contoso.Students.Api;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -41,6 +42,7 @@ public sealed class StudentEndpointTests
         var student = await response.Content.ReadFromJsonAsync<StudentResponse>();
         Assert.IsNotNull(student);
         Assert.AreEqual("Ana", student.FirstName);
+        await CaptureResponseAsync(response, "Student", "student-lookup.json");
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/students/2")).StatusCode);
     }
 
@@ -59,22 +61,41 @@ public sealed class StudentEndpointTests
         Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
         var student = await created.Content.ReadFromJsonAsync<StudentResponse>();
         Assert.IsNotNull(student);
+        await CaptureResponseAsync(created, "Student", "student-created.json");
         Assert.AreEqual(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(
             $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id + 1, "Ana", "Example", input.EnrollmentDate))).StatusCode);
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.PutAsJsonAsync(
             "/api/v1/students/99", new UpdateStudentRequest(99, "Ana", "Example", input.EnrollmentDate))).StatusCode);
         Assert.AreEqual(HttpStatusCode.NoContent, (await client.PutAsJsonAsync(
             $"/api/v1/students/{student.Id}", new UpdateStudentRequest(student.Id, "Anita", "Example", input.EnrollmentDate))).StatusCode);
-        var page = await client.GetFromJsonAsync<StudentPage>("/api/v1/students?page=0");
+        var pageResponse = await client.GetAsync("/api/v1/students?page=0");
+        Assert.AreEqual(HttpStatusCode.OK, pageResponse.StatusCode);
+        var page = await pageResponse.Content.ReadFromJsonAsync<StudentPage>();
         Assert.IsNotNull(page);
         Assert.AreEqual(1, page.CurrentPage);
         Assert.AreEqual("Anita", page.Students[0].FirstName);
+        await CaptureResponseAsync(pageResponse, "StudentPage", "students-page.json");
         var matches = await client.GetFromJsonAsync<List<StudentResponse>>("/api/v1/students/search?name=An");
         Assert.IsNotNull(matches);
         Assert.HasCount(1, matches);
-        var farPage = await client.GetFromJsonAsync<StudentPage>("/api/v1/students?page=2147483647");
+        var farPageResponse = await client.GetAsync("/api/v1/students?page=2147483647");
+        Assert.AreEqual(HttpStatusCode.OK, farPageResponse.StatusCode);
+        var farPage = await farPageResponse.Content.ReadFromJsonAsync<StudentPage>();
         Assert.IsNotNull(farPage);
         Assert.IsEmpty(farPage.Students);
+        await CaptureResponseAsync(farPageResponse, "StudentPage", "students-empty-page.json");
+    }
+
+    private static async Task CaptureResponseAsync(HttpResponseMessage response, string schema, string fileName)
+    {
+        var directory = Environment.GetEnvironmentVariable("CONTOSO_PRODUCER_SAMPLES");
+        if (string.IsNullOrWhiteSpace(directory))
+            return;
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Directory.CreateDirectory(directory);
+        var envelope = new { schema, body = body.RootElement };
+        await File.WriteAllTextAsync(Path.Combine(directory, fileName), JsonSerializer.Serialize(envelope));
     }
 
     private sealed class StudentsFactory : WebApplicationFactory<Program>
