@@ -19,4 +19,7 @@
     </PackageReference>
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\scripts\seed-students.sql" Link="seed-students.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

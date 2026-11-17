@@ -5,7 +5,27 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Resources;
 
-var builder = WebApplication.CreateBuilder(args);
+var maintenance = args.Contains("--migrate", StringComparer.Ordinal) || args.Contains("--seed-demo", StringComparer.Ordinal);
+var builder = WebApplication.CreateBuilder(maintenance ? [] : args);
+if (maintenance)
+{
+    if (args.Count(arg => arg == "--migrate") != 1
+        || args.Count(arg => arg == "--seed-demo") > 1
+        || args.Any(arg => arg is not "--migrate" and not "--seed-demo"))
+        throw new InvalidOperationException("Use --migrate, optionally followed by --seed-demo.");
+    var connectionString = builder.Configuration.GetConnectionString("Students");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("Set ConnectionStrings:Students for the migration identity.");
+    var options = new DbContextOptionsBuilder<StudentsDbContext>().UseSqlServer(connectionString).Options;
+    await using var database = new StudentsDbContext(options);
+    await database.Database.MigrateAsync();
+    if (args.Contains("--seed-demo", StringComparer.Ordinal))
+    {
+        var seed = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "seed-students.sql"));
+        await database.Database.ExecuteSqlRawAsync(seed);
+    }
+    return;
+}
 if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
 {
     var insightsConnection = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];

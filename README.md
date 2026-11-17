@@ -19,9 +19,11 @@ is required. Azure Monitor uses `DefaultAzureCredential` and the
 telemetry ingestion access. No cloud exporter is enabled in local test runs.
 
 The checked-in EF migration is an explicit schema artifact; applying it is a
-separate privileged operation, not startup behavior. After migrating, a
-separate privileged bootstrap runs `scripts/seed-students.sql` against the
-Students database. It inserts three fixed synthetic records only on an empty
+separate privileged operation, not startup behavior. From the published
+package, a separately privileged in-network bootstrap can run
+`dotnet Contoso.Students.Api.dll --migrate` or append `--seed-demo` to apply
+the migration and `scripts/seed-students.sql`. The connection string must name
+the migration identity, not the runtime identity. The seed inserts three fixed synthetic records only on an empty
 database, records a transactional marker, and is a no-op on later runs; it
 refuses to seed pre-existing unmarked records. Its DDL is never granted to the
 runtime identity. It has not yet been validated against Azure SQL.
